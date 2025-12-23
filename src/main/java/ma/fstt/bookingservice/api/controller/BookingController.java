@@ -87,7 +87,7 @@ public class BookingController {
             // enforce authenticated user
             request.setUserId(Long.parseLong(requesterId));
 
-            log.info("Received booking request: userId={}, propertyId={}",
+            log.info("Received booking request: userId={}, propertyId={}", 
                     request.getUserId(), request.getPropertyId());
             
             // Validate price before sending to RabbitMQ
