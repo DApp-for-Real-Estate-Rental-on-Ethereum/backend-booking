@@ -3,6 +3,7 @@ pipeline {
 
     environment {
         DOCKER_IMAGE_NAME = 'medgm/real-estate-booking-service'
+        SONARQUBE_TOKEN = credentials('sonarqube-token')
     }
 
     stages {
@@ -56,7 +57,7 @@ pipeline {
                         ./mvnw sonar:sonar \
                           -Dsonar.projectKey=real-estate-booking-service \
                           -Dsonar.host.url=http://sonarqube:9000 \
-                          -Dsonar.login=${SONARQUBE_TOKEN} || true
+                          -Dsonar.login=${SONARQUBE_TOKEN}
                     '''
                 }
             }
