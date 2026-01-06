@@ -11,12 +11,14 @@ import java.util.List;
 
 @Repository
 public interface BookingRepository extends JpaRepository<Booking, Long> {
-    
+
     /**
      * Find all bookings for a specific property
      */
     List<Booking> findByPropertyId(String propertyId);
-    
+
+    List<Booking> findByUserId(Long userId);
+
     /**
      * Find bookings that overlap with the given date range for a specific property
      * A booking overlaps if:
@@ -27,19 +29,32 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
      * - PENDING_PAYMENT (should be cancelled)
      * - PENDING_NEGOTIATION (should be cancelled)
      * - NEGOTIATION_REJECTED (should be cancelled)
-     * - CONFIRMED (should be cancelled if overlapping - though this shouldn't happen)
+     * - CONFIRMED (should be cancelled if overlapping - though this shouldn't
+     * happen)
      * - TENANT_CHECKED_OUT (should be cancelled if overlapping)
      */
     @Query("SELECT b FROM Booking b WHERE b.propertyId = :propertyId " +
-           "AND b.id != :excludeBookingId " +
-           "AND b.checkInDate <= :checkOutDate " +
-           "AND b.checkOutDate >= :checkInDate " +
-           "AND b.status NOT IN ('COMPLETED', 'CANCELLED')")
+            "AND b.id != :excludeBookingId " +
+            "AND b.checkInDate <= :checkOutDate " +
+            "AND b.checkOutDate >= :checkInDate " +
+            "AND b.status NOT IN ('COMPLETED', 'CANCELLED')")
     List<Booking> findOverlappingBookings(
-        @Param("propertyId") String propertyId,
-        @Param("excludeBookingId") Long excludeBookingId,
-        @Param("checkInDate") LocalDate checkInDate,
-        @Param("checkOutDate") LocalDate checkOutDate
-    );
-}
+            @Param("propertyId") String propertyId,
+            @Param("excludeBookingId") Long excludeBookingId,
+            @Param("checkInDate") LocalDate checkInDate,
+            @Param("checkOutDate") LocalDate checkOutDate);
 
+    @Query(value = """
+            SELECT
+                COUNT(*) as total,
+                COUNT(CASE WHEN status IN ('COMPLETED', 'TENANT_CHECKED_OUT', 'CONFIRMED') THEN 1 END) as completed,
+                COUNT(CASE WHEN status LIKE 'CANCELLED%' THEN 1 END) as cancelled,
+                AVG(total_price) as avgPrice,
+                AVG(check_out_date - check_in_date) as avgStayDays,
+                COUNT(CASE WHEN created_at > :sixMonthsAgo THEN 1 END) as recent
+            FROM bookings
+            WHERE user_id = :userId
+            """, nativeQuery = true)
+    BookingStatsSummary getBookingStats(@Param("userId") Long userId,
+            @Param("sixMonthsAgo") java.time.Instant sixMonthsAgo);
+}

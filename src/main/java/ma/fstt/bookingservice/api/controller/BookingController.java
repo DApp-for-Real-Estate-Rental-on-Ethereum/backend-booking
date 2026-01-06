@@ -15,6 +15,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import ma.fstt.bookingservice.config.RequiresRole;
 
 import ma.fstt.bookingservice.api.dto.AdminBookingResponseDTO;
 
@@ -34,16 +35,40 @@ public class BookingController {
     private final PropertyRepository propertyRepository;
     private final BookingRepository bookingRepository;
 
-    private boolean isAdmin(String rolesHeader) {
-        return rolesHeader != null && rolesHeader.contains("ADMIN");
+    private boolean isAdmin(String roles) {
+        return roles != null && roles.contains("ADMIN");
     }
 
     private ResponseEntity<Map<String, Object>> unauthorized() {
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Not authenticated"));
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "error");
+        response.put("message", "Unauthorized");
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
     }
 
     private ResponseEntity<Map<String, Object>> forbidden() {
-        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Forbidden"));
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "error");
+        response.put("message", "Forbidden");
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+    }
+
+    @GetMapping("/statistics")
+    public ResponseEntity<ma.fstt.bookingservice.api.dto.BookingStatsDTO> getBookingStats(
+            @RequestHeader(value = "X-User-Id", required = false) String requesterId,
+            @RequestHeader(value = "X-User-Roles", required = false) String requesterRoles,
+            @RequestParam Long userId) {
+
+        if (requesterId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        boolean isAdmin = requesterRoles != null && requesterRoles.contains("ADMIN");
+        if (!isAdmin && !requesterId.equals(userId.toString())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        return ResponseEntity.ok(bookingService.getBookingStats(userId));
     }
 
     @GetMapping("/init")
@@ -58,13 +83,13 @@ public class BookingController {
     public ResponseEntity<Map<String, Object>> receiveInitData(@RequestBody Map<String, Object> initData) {
         Map<String, Object> response = new HashMap<>();
         try {
-            Long userId = initData.get("userId") instanceof Number 
-                ? ((Number) initData.get("userId")).longValue() 
-                : Long.parseLong(initData.get("userId").toString());
+            Long userId = initData.get("userId") instanceof Number
+                    ? ((Number) initData.get("userId")).longValue()
+                    : Long.parseLong(initData.get("userId").toString());
             String propertyId = initData.get("propertyId").toString();
-            
+
             log.info("Received init data: userId={}, propertyId={}", userId, propertyId);
-            
+
             response.put("status", "received");
             response.put("message", "Init data received successfully");
             return ResponseEntity.ok(response);
@@ -83,13 +108,14 @@ public class BookingController {
             @RequestBody BookingRequest request) {
         Map<String, Object> response = new HashMap<>();
         try {
-            if (requesterId == null) return unauthorized();
+            if (requesterId == null)
+                return unauthorized();
             // enforce authenticated user
             request.setUserId(Long.parseLong(requesterId));
 
-            log.info("Received booking request: userId={}, propertyId={}", 
+            log.info("Received booking request: userId={}, propertyId={}",
                     request.getUserId(), request.getPropertyId());
-            
+
             // Validate price before sending to RabbitMQ
             if (request.getRequestedPrice() != null) {
                 String validationError = bookingService.validateRequestedPrice(request);
@@ -100,9 +126,9 @@ public class BookingController {
                     return ResponseEntity.badRequest().body(response);
                 }
             }
-            
+
             rabbitTemplate.convertAndSend("booking", request);
-            
+
             response.put("status", "accepted");
             response.put("message", "Booking request sent to queue");
             return ResponseEntity.accepted().body(response);
@@ -155,19 +181,22 @@ public class BookingController {
             @RequestParam(required = false) Long tenantId,
             @RequestParam(required = false) Long ownerId) {
         try {
-            if (requesterId == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            if (requesterId == null)
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
             boolean admin = isAdmin(requesterRoles);
             List<Booking> bookings;
             if (tenantId != null) {
-                if (!admin && !requesterId.equals(tenantId.toString())) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+                if (!admin && !requesterId.equals(tenantId.toString()))
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
                 bookings = bookingService.getBookingsByUserId(tenantId);
             } else if (ownerId != null) {
-                if (!admin && !requesterId.equals(ownerId.toString())) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+                if (!admin && !requesterId.equals(ownerId.toString()))
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
                 bookings = bookingService.getBookingsByOwnerId(ownerId);
             } else {
                 return ResponseEntity.ok(List.of());
             }
-            
+
             List<Map<String, Object>> result = bookings.stream().map(booking -> {
                 Map<String, Object> map = new HashMap<>();
                 map.put("id", booking.getId());
@@ -196,8 +225,10 @@ public class BookingController {
             @RequestHeader(value = "X-User-Roles", required = false) String requesterRoles,
             @RequestParam Long userId) {
         try {
-            if (requesterId == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-            if (!isAdmin(requesterRoles) && !requesterId.equals(userId.toString())) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            if (requesterId == null)
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            if (!isAdmin(requesterRoles) && !requesterId.equals(userId.toString()))
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
             List<Booking> bookings = bookingService.getPendingBookingsByUserId(userId);
             List<Map<String, Object>> result = bookings.stream().map(booking -> {
                 Map<String, Object> map = new HashMap<>();
@@ -227,8 +258,10 @@ public class BookingController {
             @RequestHeader(value = "X-User-Roles", required = false) String requesterRoles,
             @RequestParam Long userId) {
         try {
-            if (requesterId == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-            if (!isAdmin(requesterRoles) && !requesterId.equals(userId.toString())) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            if (requesterId == null)
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            if (!isAdmin(requesterRoles) && !requesterId.equals(userId.toString()))
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
             List<Booking> bookings = bookingService.getAwaitingPaymentBookingsByUserId(userId);
             List<Map<String, Object>> result = bookings.stream().map(booking -> {
                 Map<String, Object> map = new HashMap<>();
@@ -258,8 +291,10 @@ public class BookingController {
             @RequestHeader(value = "X-User-Roles", required = false) String requesterRoles,
             @RequestParam Long ownerId) {
         try {
-            if (requesterId == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-            if (!isAdmin(requesterRoles) && !requesterId.equals(ownerId.toString())) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            if (requesterId == null)
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            if (!isAdmin(requesterRoles) && !requesterId.equals(ownerId.toString()))
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
             List<Booking> bookings = bookingService.getPendingNegotiationsByOwnerId(ownerId);
             List<Map<String, Object>> result = bookings.stream().map(booking -> {
                 Map<String, Object> map = new HashMap<>();
@@ -291,8 +326,10 @@ public class BookingController {
             @RequestHeader(value = "X-User-Roles", required = false) String requesterRoles) {
         Map<String, Object> response = new HashMap<>();
         try {
-            if (requesterId == null) return unauthorized();
-            if (!isAdmin(requesterRoles) && !requesterId.equals(ownerId.toString())) return forbidden();
+            if (requesterId == null)
+                return unauthorized();
+            if (!isAdmin(requesterRoles) && !requesterId.equals(ownerId.toString()))
+                return forbidden();
             Booking booking = bookingService.acceptNegotiation(id, ownerId);
             Map<String, Object> map = new HashMap<>();
             map.put("id", booking.getId());
@@ -323,8 +360,10 @@ public class BookingController {
             @RequestHeader(value = "X-User-Roles", required = false) String requesterRoles) {
         Map<String, Object> response = new HashMap<>();
         try {
-            if (requesterId == null) return unauthorized();
-            if (!isAdmin(requesterRoles) && !requesterId.equals(ownerId.toString())) return forbidden();
+            if (requesterId == null)
+                return unauthorized();
+            if (!isAdmin(requesterRoles) && !requesterId.equals(ownerId.toString()))
+                return forbidden();
             Booking booking = bookingService.rejectNegotiation(id, ownerId);
             Map<String, Object> map = new HashMap<>();
             map.put("id", booking.getId());
@@ -380,13 +419,14 @@ public class BookingController {
             @RequestHeader(value = "X-User-Roles", required = false) String requesterRoles) {
         Map<String, Object> response = new HashMap<>();
         try {
-            if (requesterId == null) return unauthorized();
+            if (requesterId == null)
+                return unauthorized();
             Booking existing = bookingService.getBookingById(id);
             if (!isAdmin(requesterRoles) && !requesterId.equals(existing.getUserId().toString())) {
                 return forbidden();
             }
             Booking updatedBooking = bookingService.updateBooking(id, request);
-            
+
             Map<String, Object> map = new HashMap<>();
             map.put("id", updatedBooking.getId());
             map.put("userId", updatedBooking.getUserId());
@@ -417,7 +457,8 @@ public class BookingController {
             @RequestHeader(value = "X-User-Roles", required = false) String requesterRoles) {
         Map<String, Object> response = new HashMap<>();
         try {
-            if (requesterId == null) return unauthorized();
+            if (requesterId == null)
+                return unauthorized();
             String status = request.get("status");
             if (status == null || status.trim().isEmpty()) {
                 response.put("error", "Status is required");
@@ -430,24 +471,26 @@ public class BookingController {
             }
             String previousStatus = booking.getStatus();
             log.info("📋 Updating booking status: id={}, previousStatus={}, newStatus={}", id, previousStatus, status);
-            
+
             booking.setStatus(status);
             booking = bookingRepository.save(booking);
-            
+
             log.info("✅ Booking status saved: id={}, status={}", booking.getId(), booking.getStatus());
-            
+
             if ("CONFIRMED".equals(status) && !"CONFIRMED".equals(previousStatus)) {
-                log.info("🔄 Booking {} status changed to CONFIRMED (from {}), cancelling overlapping bookings...", id, previousStatus);
+                log.info("🔄 Booking {} status changed to CONFIRMED (from {}), cancelling overlapping bookings...", id,
+                        previousStatus);
                 try {
                     bookingService.cancelOverlappingBookings(id);
-                    log.info("✅ cancelOverlappingBookings completed for booking {}", id);
+                    log.info(" cancelOverlappingBookings completed for booking {}", id);
                 } catch (Exception e) {
-                    log.error("❌ Error in cancelOverlappingBookings for booking {}: {}", id, e.getMessage(), e);
+                    log.error(" Error in cancelOverlappingBookings for booking {}: {}", id, e.getMessage(), e);
                 }
             } else {
-                log.info("ℹ️ Not cancelling overlapping bookings: status={}, previousStatus={}", status, previousStatus);
+                log.info("ℹ Not cancelling overlapping bookings: status={}, previousStatus={}", status,
+                        previousStatus);
             }
-            
+
             Map<String, Object> map = new HashMap<>();
             map.put("id", booking.getId());
             map.put("status", booking.getStatus());
@@ -698,7 +741,7 @@ public class BookingController {
         }
     }
 
-    @PostMapping(value = "/{id}/reclamation", consumes = {"multipart/form-data"})
+    @PostMapping(value = "/{id}/reclamation", consumes = { "multipart/form-data" })
     public ResponseEntity<Map<String, Object>> createReclamation(
             @PathVariable Long id,
             @RequestParam("userId") Long userId,
@@ -725,7 +768,7 @@ public class BookingController {
             // Verify role matches
             boolean isTenant = booking.getUserId().equals(userId);
             boolean isOwner = property != null && property.getOwnerId().equals(userId);
-            
+
             if (!isTenant && !isOwner) {
                 throw new RuntimeException("User is not associated with this booking");
             }
@@ -744,8 +787,9 @@ public class BookingController {
             reclamationMessage.put("reclamationType", reclamationType);
             reclamationMessage.put("title", title != null ? title : "");
             reclamationMessage.put("description", description != null ? description : "");
-            
-            // Add image info (file names and sizes) - actual file storage will be handled by reclamation service
+
+            // Add image info (file names and sizes) - actual file storage will be handled
+            // by reclamation service
             if (images != null && images.length > 0) {
                 java.util.List<Map<String, Object>> imageInfo = new java.util.ArrayList<>();
                 for (MultipartFile image : images) {
@@ -764,7 +808,8 @@ public class BookingController {
 
             response.put("status", "success");
             response.put("message", "Reclamation request sent successfully");
-            response.put("reclamationId", "pending"); // Will be created async, frontend will need to poll or use webhook
+            response.put("reclamationId", "pending"); // Will be created async, frontend will need to poll or use
+                                                      // webhook
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("Error creating reclamation for booking id: {}", id, e);
@@ -775,21 +820,10 @@ public class BookingController {
     }
 
     @GetMapping("/admin/all")
-    public ResponseEntity<List<AdminBookingResponseDTO>> getAllBookingsForAdmin(
-            @RequestHeader(value = "X-User-Roles", required = false) String userRoles
-    ) {
-        try {
-            // Check if user has ADMIN role
-            if (userRoles == null || !userRoles.contains("ADMIN")) {
-                return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN).build();
-            }
-            
-            List<AdminBookingResponseDTO> bookings = bookingService.getAllBookingsForAdmin();
-            return ResponseEntity.ok(bookings);
-        } catch (Exception e) {
-            log.error("Error fetching all bookings for admin", e);
-            return ResponseEntity.status(500).build();
-        }
+    @RequiresRole("ADMIN")
+    public ResponseEntity<List<AdminBookingResponseDTO>> getAllBookingsForAdmin() {
+        List<AdminBookingResponseDTO> bookings = bookingService.getAllBookingsForAdmin();
+        return ResponseEntity.ok(bookings);
     }
-}
 
+}
